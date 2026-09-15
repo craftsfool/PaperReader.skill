@@ -1,0 +1,4 @@
+interface:
+  display_name: "PaperReader 论文翻译"
+  short_description: "用当前 Codex 会话翻译论文，保留公式引用，支持全文续译与双语对照"
+  default_prompt: "使用 $paperreader-translate 将这篇论文完整翻译成中文，保留公式、引用和图表，输出中文 PDF 与可编辑译文。"

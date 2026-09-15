@@ -1,53 +1,47 @@
-# PaperReader v2.1.9
+# PaperReader.skill — Codex 论文翻译
 
-English | [简体中文](docs/zh-cn/README.zh-cn.md)
+将 PaperReader 的论文翻译流程制作成独立 Codex Skill。翻译由当前 Codex 会话完成，本地脚本负责解析、保护公式、保存进度与导出，不调用 LLM API 或 MinerU 云 API。
 
-[Download Windows / macOS v2.1.9](https://github.com/Mars-Dingdang/PaperReader/releases/tag/v2.1.9) · [Upgrade guide](docs/UPGRADING.md) · [Release notes](docs/releases/v2.1.9.md)
+## 安装与使用
 
-> 📖 **Please read the [User Guide (中文)](docs/user_instruction.md) before downloading.** It covers installation (including the Windows "unblock ZIP" step that prevents most launch failures), first-run provider setup, paper submission, history, artifacts, and AI chat.
+将本仓库 `skills/paperreader-translate` 整个文件夹复制到本机 Codex 的用户技能目录（当前官方路径为 `~/.agents/skills/`；使用 `~/.codex/skills/` 的环境可放入其现有技能目录）。重新打开会话后调用：
 
-v2.1.9 upgrades the reader itself: in-document search, persistent annotations with Markdown note export, reading-position memory, synced dual-pane scrolling, streamed AI answers with clickable citations, library-wide full-text search, BibTeX export, and a figure gallery — on top of a PDF renderer that now loads pages on demand. See the [release notes](docs/releases/v2.1.9.md) for details. Frontend/API package version: `2.1.9`.
+```text
+$paperreader-translate 把这篇论文完整翻译成中文，保留公式和图表，生成中文 PDF。
+```
 
-![](./images/demo1.png)
+支持本地 PDF、单个 TeX、包含 input/include 的工程和 ZIP/TAR 源码包。链接由 Codex 下载后处理；arXiv 优先使用同版本源码。长论文逐块保存，可在下一会话继续。
 
-PaperReader is a full-stack bilingual paper-reading app. Upload a PDF or a LaTeX source; PaperReader parses it (MinerU cloud API for PDFs), translates it with an LLM while preserving formulas, figures, and tables, compiles the result back into a PDF, and lets you read both versions side by side and chat with the paper.
+- **TeX 源码**：保留工程目录、公式、引用和图片，翻译后编译中文 PDF。
+- **只有 PDF**：优先使用开源 MinerU 本地解析公式、版面和图表，再逐页校对，导出 Markdown 和离线双语 HTML，由 Codex 制作中文重排 PDF。
+- **依赖**：Python 3.10+；本地结构解析使用 MinerU pipeline，页图与轻量解析使用 PyMuPDF；PDF 编译需要 XeLaTeX。无需启动原软件。
 
-## Desktop quick start
+使用 ChatGPT 登录 Codex 可使用订阅访问；Skill 不改变账户的额度或计费方式，API Key 登录仍按 API 方式计费。参见 [官方认证说明](https://developers.openai.com/codex/auth) 和 [Skill 文档](https://developers.openai.com/codex/skills)。
 
-- **Windows**: download the ZIP from the release page, extract the complete archive, and run `PaperReader.exe`. If it fails to open, unblock the ZIP first — see the [User Guide](docs/user_instruction.md).
-- **macOS (Apple Silicon)**: open the DMG and copy PaperReader to Applications.
-- Both builds open a first-run wizard for your LLM and [MinerU](https://mineru.net/apiManage/docs) credentials; everything else is bundled.
-- Translated PDF generation additionally requires [TeX Live](https://www.tug.org/texlive/) with `latexmk` installed on the host.
-- Platform guides: [Windows](desktop/README_zh.md) · [macOS](desktop/README_macos_zh.md)
+## 能力边界
 
-## Features
+PDF 文本提取不能保证双栏阅读顺序、扫描识别和数学结构完整，须按原页图校对；重排版不承诺原版式复刻。TeX 自定义宏和期刊模板可能需要适配。脚本能校验保护标记和块覆盖，语义准确性由 Codex 对照原文检查。完整流程见 [SKILL.md](skills/paperreader-translate/SKILL.md)。
 
-- Username/password accounts with remember-me sessions and a personal center (avatar, password, per-user LLM / MinerU / parser / vision settings); keys are stored encrypted and never returned to the frontend
-- Persistent per-user history in local SQLite; processed files reopen after a restart
-- Upload `.pdf`, single `.tex`, individual TeX project files, or a complete `.zip` / `.tar` / `.tar.gz` / `.tgz` LaTeX archive; LaTeX source is preferred for arXiv papers because it preserves structure better than PDF extraction
-- PDF parsing via the MinerU cloud API — no local OCR or GPU required
-- Concurrent LLM translation with validated per-chunk checkpoints and automatic retry; failed documents resume from the last checkpoint instead of starting over
-- Four-layer LaTeX failure prevention: prose sanitizer → strict-then-fallback compile → bounded model repair → in-browser manual TeX editor
-- Optional vision-model adversarial check on each page (auto / manual review modes, off by default)
-- Side-by-side original/translated PDF reader with outlines (bookmarks or backend-parsed section structure), selectable text, trackpad zoom, on-demand page rendering, and a progress bar with stage breakdown, ETA, and failure diagnosis
-- In-document search (Ctrl/Cmd+F) with match navigation across the whole file
-- Persistent colored annotations with optional notes, restored on reopen, exportable as a bilingual Markdown reading-notes file
-- Reading-position memory: reopen a document where you left off
-- Optional synced dual-pane scrolling driven by the bilingual alignment index; counterpart highlighting lands near the passage you selected instead of always at the start of the block
-- Figure gallery: every parsed figure and table as a thumbnail strip that jumps to its page
-- Selection menu with "ask AI" that grounds the answer in the selected passage and its neighbors; streamed answers with clickable citation badges that jump back to the source text
-- Library-wide full-text search across all parsed documents, opening the match at its location
-- Paper metadata (title/authors/year/venue) via Semantic Scholar with one-click BibTeX export — or the project's own `.bib` for LaTeX submissions
-- Artifact panel with reference preview and drag-into-PDF-pane, plus template prompts (Highlight / Baseline / Limitations)
-- AI chat with paper context via any OpenAI-compatible API; Markdown, GitHub-flavored tables, and KaTeX math in both bubbles
-- Light / dark theme persisted per account
-- Native desktop apps (WebView2 on Windows, WKWebView on macOS arm64) with persistent local sessions
+## 开发验证
 
-## Documentation
+```bash
+python3 -m unittest discover -s tests/skill -v
+```
 
-| Document | Content |
-| --- | --- |
-| [User Guide (中文)](docs/user_instruction.md) | Installation, setup, and usage — read before downloading |
-| [Developer Docs](docs/DEVELOPMENT.md) | Building from source, packaging and release process, project structure, environment variables, API reference |
-| [Upgrade Guide](docs/UPGRADING.md) | Migrating between versions |
-| [Release notes](docs/releases/) ([中文](docs/zh-cn/releases/)) | Per-version changes |
+PDF 测试需要先在虚拟环境安装 `skills/paperreader-translate/scripts/requirements.txt`。CLI 的 prepare/next/accept/assemble/compile 用法见 Skill 附带参考文件。
+
+改编自同学的 [Mars-Dingdang/PaperReader](https://github.com/Mars-Dingdang/PaperReader)，委托人确认已获得作者授权。改编范围与来源见 [provenance.md](skills/paperreader-translate/references/provenance.md)。本仓库仅发布独立 Skill，原应用源码可在上游仓库及本 Fork 的历史提交中查阅。
+
+
+## 仓库结构
+
+```text
+skills/paperreader-translate/
+  SKILL.md
+  agents/openai.yaml
+  scripts/
+  references/
+tests/skill/
+```
+
+MinerU 本地环境和导入命令见 [MinerU 流程](skills/paperreader-translate/references/mineru.md)。本地解析不需要 MinerU 云 API Key；翻译由当前 Codex 会话完成。
