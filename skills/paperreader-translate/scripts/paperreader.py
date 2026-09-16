@@ -17,6 +17,7 @@ from pathlib import Path
 
 from tex_guard import TOKEN, chunks, protect, restore, strip_comments, validate
 from mineru_adapter import import_pages, protect_markdown
+from build_diagnostics import diagnose, save_report, snapshot
 
 
 def write_json(path: Path, data: object) -> None:
@@ -276,6 +277,8 @@ def assemble(args: argparse.Namespace) -> None:
 
 def compile_tex(args: argparse.Namespace) -> None:
     main = Path(args.main).resolve()
+    if not main.is_file():
+        raise ValueError(f"Main TeX file not found: {main}")
     engine = shutil.which("xelatex")
     if not engine and Path("/Library/TeX/texbin/xelatex").is_file():
         engine = "/Library/TeX/texbin/xelatex"
@@ -291,19 +294,53 @@ def compile_tex(args: argparse.Namespace) -> None:
     import os
     env = dict(os.environ)
     env["PATH"] = str(Path(engine).parent) + os.pathsep + env.get("PATH", "")
-    for _ in range(passes):
-        result = subprocess.run(command, cwd=main.parent, env=env, capture_output=True, text=True, timeout=240)
-        (main.parent / "paperreader-build.log").write_text(result.stdout + result.stderr, encoding="utf-8")
-        if result.returncode:
-            raise ValueError(f"Compilation failed; inspect {main.parent / 'paperreader-build.log'}")
+    attempt = snapshot(main)
+    # Retain the previous log but never diagnose it as the current run's output.
     log = main.with_suffix(".log")
-    text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
-    issues = [line for line in text.splitlines() if any(word in line for word in ("Missing character:", "undefined", "Overfull", "LaTeX Warning:"))]
-    if not main.with_suffix(".pdf").is_file():
-        raise ValueError("Compiler produced no PDF")
-    print(json.dumps({"pdf": str(main.with_suffix(".pdf")), "review": issues}, ensure_ascii=False, indent=2))
-    if any("Missing character:" in issue for issue in issues):
-        raise ValueError("PDF has missing glyphs; fix fonts before delivery")
+    if log.exists():
+        shutil.copy2(log, attempt / "previous.log")
+        log.unlink()
+    output = ""
+    failure = None
+    returncode = None
+    try:
+        for _ in range(passes):
+            result = subprocess.run(command, cwd=main.parent, env=env, capture_output=True,
+                                    text=True, errors="replace", timeout=240)
+            output += result.stdout + result.stderr
+            returncode = result.returncode
+            if returncode:
+                break
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        failure = str(exc)
+        for value in (getattr(exc, "stdout", None), getattr(exc, "stderr", None)):
+            if value:
+                output += value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+        output += "\n" + failure
+    report = save_report(main, attempt, output, returncode, failure)
+    print(json.dumps({"pdf": report["pdf"], "review": report["review"],
+                      "diagnostics": str(attempt / "report.json"),
+                      "source_snapshot": str(attempt / "source")}, ensure_ascii=False, indent=2))
+    if not report["success"]:
+        raise ValueError(f"Compilation failed or has missing glyphs; inspect {attempt / 'report.json'}")
+
+
+def diagnose_tex(args: argparse.Namespace) -> None:
+    main = Path(args.main).resolve()
+    log = Path(args.log).resolve() if args.log else main.with_suffix(".log")
+    text = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else "Compiler log unavailable; inspect source and latest compiler output."
+    print(json.dumps(diagnose(main, text), ensure_ascii=False, indent=2))
+
+
+def figures(args: argparse.Namespace) -> None:
+    pymupdf()
+    from figure_gallery import build_gallery
+    result = build_gallery(Path(args.original).resolve(),
+                           Path(args.translated).resolve() if args.translated else None,
+                           Path(args.output).resolve())
+    print(json.dumps({"index": str(Path(args.output).resolve() / "index.html"),
+                      "detected_items": len(result["items"]),
+                      "limitations": result["limitations"]}, ensure_ascii=False, indent=2))
 
 
 def main() -> None:
@@ -336,6 +373,15 @@ def main() -> None:
     compile_cmd = commands.add_parser("compile")
     compile_cmd.add_argument("main")
     compile_cmd.set_defaults(run=compile_tex)
+    diagnosis = commands.add_parser("diagnose")
+    diagnosis.add_argument("main")
+    diagnosis.add_argument("--log")
+    diagnosis.set_defaults(run=diagnose_tex)
+    gallery = commands.add_parser("figures")
+    gallery.add_argument("original")
+    gallery.add_argument("--translated")
+    gallery.add_argument("--output", required=True)
+    gallery.set_defaults(run=figures)
     args = parser.parse_args()
     try:
         args.run(args)
